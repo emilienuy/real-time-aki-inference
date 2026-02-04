@@ -12,5 +12,5 @@
 
 
 ## Running tests
-    ```bash
-    pytest -q tests
+```bash
+pytest -q tests
