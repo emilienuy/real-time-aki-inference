@@ -10,7 +10,6 @@
     export MLLP_ADDRESS=localhost:8440
     python3 -m src.main
 
-
 ## Running tests
 ```bash
 pytest -q tests
