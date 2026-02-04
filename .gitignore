@@ -1,0 +1,44 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+
+# ---- IDEs / editors ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Logs & runtime files ----
+*.log
+
+# ---- Docker ----
+*.tar
+docker-compose.override.yml
+
+# ---- Test artifacts ----
+tests/output/
+tests/tmp/
+
+# ---- Local-only data ----
+data/
+
+# ---- Simulator runtime junk ----
+tools/simulator/__pycache__/
+tools/simulator/*.log
