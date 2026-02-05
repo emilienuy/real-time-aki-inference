@@ -9,6 +9,8 @@ from src.data_processing import read_history, update_history, construct_features
 from src.model import AkiModel
 from joblib import load
 
+from src.http import request
+
 
 def parse_hostport(addr: str) -> tuple[str, int]:
     host, port_str = addr.split(":")
@@ -34,6 +36,9 @@ def main():
     # Connect to the assessment simulator
     mllp_address = os.environ.get("MLLP_ADDRESS", "localhost:8440")
     mllp_host, mllp_port = parse_hostport(mllp_address)
+
+    pager_address = os.environ.get("PAGER_ADDRESS", "localhost:8441")
+    _, pager_port = parse_hostport(pager_address)
 
     print(f"connecting to MLLP at {mllp_host}:{mllp_port} ...")
     sock = socket.create_connection((mllp_host, mllp_port), timeout=10)
@@ -81,10 +86,10 @@ def main():
                 patient_features = construct_features(patient_record)
                 is_AKI_predicted = model.predict(patient_features)[0]
 
-                # Print the test that leads to a positive diagnosis
+                # Send a pager request if AKI is predicted
                 if is_AKI_predicted:
 
-                    print(f"{mrn}, {parsed_msg.result.timestamp}")
+                    request(pager_port, parsed_msg)
     
     # print(f"finished, processed {count} messages")
 
