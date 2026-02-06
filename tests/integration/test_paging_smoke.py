@@ -87,9 +87,9 @@ def test_paging_smoke():
     env = {
         **os.environ,
         "MLLP_ADDRESS": f"localhost:{mllp_port}",
-        "PAGER_PORT": str(pager_port),
-        "PAGER_HOST": "localhost",
+        "PAGER_ADDRESS": f"localhost:{pager_port}",
         "PAGER_ALWAYS": "1",
+        "SKIP_MODEL": "1",
         "HISTORY_CSV": "tests/fixtures/history.csv",
         "AKI_CSV": "tests/fixtures/aki.csv",
         "LOG_LEVEL": "WARNING",

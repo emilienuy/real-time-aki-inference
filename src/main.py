@@ -76,6 +76,14 @@ def _fit_model(history_path, aki_path):
     return model
 
 
+def _load_model(model_path):
+    from joblib import load
+
+    if not model_path or not os.path.exists(model_path):
+        return None
+    return load(model_path)
+
+
 def _should_page(force_page, model, patient_record):
     from src.data_processing import construct_features
 
@@ -111,11 +119,13 @@ def main():
     mllp_address = os.environ.get("MLLP_ADDRESS", "localhost:8440")
     host, port = _parse_hostport(mllp_address)
 
-    # Allow fixture defaults but keep everything configurable for local runs/tests.
-    history_path = os.environ.get("HISTORY_CSV", "tests/fixtures/history.csv")
-    aki_path = os.environ.get("AKI_CSV", "tests/fixtures/aki.csv")
-    pager_port = int(os.environ.get("PAGER_PORT", "8441"))
-    pager_host = os.environ.get("PAGER_HOST", "localhost")
+    # Default to assessment layout but keep everything configurable for local runs/tests.
+    history_path = os.environ.get("HISTORY_CSV", "/data/history.csv")
+    aki_path = os.environ.get("AKI_CSV", "")
+    # Load the pre-trained CW1 model by default.
+    model_path = os.environ.get("MODEL_PATH", "model.joblib")
+    pager_address = os.environ.get("PAGER_ADDRESS", "localhost:8441")
+    pager_host, pager_port = _parse_hostport(pager_address)
 
     # PAGER_ALWAYS is used in integration tests to make paging deterministic.
     force_page = os.environ.get("PAGER_ALWAYS", "0") == "1"
@@ -140,7 +150,12 @@ def main():
     history = read_history(history_path) if os.path.exists(history_path) else defaultdict(dict)
     # SKIP_MODEL lets smoke tests avoid expensive model imports/training.
     skip_model = os.environ.get("SKIP_MODEL", "0") == "1"
-    model = None if skip_model else _fit_model(history_path, aki_path)
+    if skip_model:
+        model = None
+    else:
+        model = _load_model(model_path)
+        if model is None and aki_path:
+            model = _fit_model(history_path, aki_path)
 
     count = 0
     for msg in _iter_messages(sock):
