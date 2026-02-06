@@ -34,7 +34,8 @@ def test_mllp_client_can_stream_messages():
         time.sleep(0.5)
 
         # Run client
-        env = {**os.environ, "MLLP_ADDRESS": "localhost:8440"}
+        # Skip model setup so the smoke test stays fast and deterministic.
+        env = {**os.environ, "MLLP_ADDRESS": "localhost:8440", "SKIP_MODEL": "1"}
         client = subprocess.Popen(
             [sys.executable, "-m", "src.main"],
             stdout=subprocess.PIPE,
