@@ -9,6 +9,7 @@ from src.ack import build_ack
 from src.hl7 import parse_hl7_message
 from src.http import request as pager_request
 from src.mllp import extract_mllp_messages, wrap_mllp_message
+from src.model import AkiModel
 
 
 def _parse_hostport(addr):
