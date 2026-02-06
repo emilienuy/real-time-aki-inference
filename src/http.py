@@ -1,15 +1,13 @@
-from src.hl7 import ParsedMessage
 import http
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
-def request(pager_port: int, parsed_msg: ParsedMessage) -> None:
-    """ Send a pager HTTP request given a positive test result message. """
-
+def request(pager_port, parsed_msg, host="localhost", timeout=3.0):
+    """Send a pager HTTP request given a positive test result message."""
     req_data = (f"{parsed_msg.mrn},{parsed_msg.result.timestamp}").encode("ascii")
-    
-    req = urlopen(f"http://localhost:{pager_port}/page", data=req_data)
-    
-    # Raise an error if the HTTP request is unsuccessful
-    if req.status != http.HTTPStatus.OK:
+    url = f"http://{host}:{pager_port}/page"
 
-        raise RuntimeError(f"Pager HTTP request failed with status {req.status}.")
+    # Keep a short timeout so paging doesn't block the stream.
+    req = Request(url, data=req_data, headers={"Content-Type": "text/plain"})
+    with urlopen(req, timeout=timeout) as resp:
+        if resp.status != http.HTTPStatus.OK:
+            raise RuntimeError(f"Pager HTTP request failed with status {resp.status}.")
