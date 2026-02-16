@@ -106,7 +106,12 @@ def _should_page(force_page, model, patient_record):
 def _iter_messages(sock):
     buffer = bytearray()
     while True:
-        chunk = sock.recv(4096)
+        try:
+            chunk = sock.recv(4096)
+        except (TimeoutError, socket.timeout):
+            continue  # no data yet; keep waiting
+        if not chunk:
+            return
         if not chunk:
             return
         buffer.extend(chunk)
@@ -143,7 +148,6 @@ def main():
             if time.time() >= deadline:
                 raise
             time.sleep(0.1)
-    sock.settimeout(10)
 
     from src.data_processing import read_history, update_history
 

@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aki-detection-state
+  namespace: gateshead
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aki-detection
+  namespace: gateshead
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aki-detection
+  template:
+    metadata:
+      labels:
+        app: aki-detection
+    spec:
+      containers:
+      - name: aki-detection
+        image: imperialswemlsspring2026.azurecr.io/coursework4-gateshead
+        args:
+        # Replace this with however you tell your solution where to find the
+        # initial history file. /data is mounted below.
+        - "--history=/data/history.csv"
+        env:
+        - name: MLLP_ADDRESS
+          value: gateshead-simulator.coursework4:8440
+        - name: PAGER_ADDRESS
+          value: gateshead-simulator.coursework4:8441
+        ports:
+        - name: http
+          containerPort: 8000
+        volumeMounts:
+          - mountPath: "/data"
+            name: hospital-history
+            readOnly: true
+          - mountPath: "/state"
+            name: aki-detection-state
+        resources:
+          requests:
+            memory: 1G
+            cpu: "500m"
+      initContainers:
+      - name: copy-hospital-history
+        image: imperialswemlsspring2026.azurecr.io/coursework4-history
+        volumeMounts:
+          - mountPath: "/data"
+            name: hospital-history
+        resources:
+          requests:
+            memory: 1G
+            cpu: "500m"
+      volumes:
+      - name: hospital-history
+        emptyDir:
+          sizeLimit: 50Mi
+      - name: aki-detection-state
+        persistentVolumeClaim:
+          claimName: aki-detection-state
