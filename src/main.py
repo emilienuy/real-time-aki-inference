@@ -3,6 +3,7 @@ import logging
 import os
 import socket
 import time
+import pickle
 from collections import defaultdict
 
 from src.ack import build_ack
@@ -152,7 +153,12 @@ def main():
     from src.data_processing import read_history, update_history
 
     # History is required to compute features for inference.
-    history = read_history(history_path) if os.path.exists(history_path) else defaultdict(dict)
+    # If possible, load the saved data prior to a restart
+    if os.path.exists("/state/updated_history.pkl"):
+        with open("/state/updated_history.pkl", "rb") as file:
+            history = pickle.load(file)
+    else:
+        history = read_history(history_path) if os.path.exists(history_path) else defaultdict(dict)
     # SKIP_MODEL lets smoke tests avoid expensive model imports/training.
     skip_model = os.environ.get("SKIP_MODEL", "0") == "1"
     if skip_model:
@@ -168,7 +174,7 @@ def main():
         # Emit progress for the smoke test and for long-running streams.
         text = msg.decode("ascii", errors="replace")
         msh = text.split("\r", 1)[0]
-        if count == 1 or count % 1000 == 0:
+        if count == 1 or count % 1 == 0:
             print(f"RX[{count}] {msh}")
 
         parsed = parse_hl7_message(msg)
@@ -179,12 +185,20 @@ def main():
         if not parsed.valid:
             continue
 
-        history = update_history(history, parsed)
+        history, duplicate = update_history(history, parsed)
 
-        if parsed.msg_type == "ORU^R01" and parsed.result.test_type == "CREATININE":
+        if (not duplicate and 
+                parsed.msg_type == "ORU^R01" and 
+                parsed.result.test_type == "CREATININE"):
             patient_record = history.get(int(parsed.mrn), {})
             if _should_page(force_page, model, patient_record):
                 pager_request(pager_port, parsed, host=pager_host)
+
+            # Save the updated history
+            os.makedirs("/state", exist_ok=True)
+            with open("/state/updated_history.pkl", "wb") as file:
+                pickle.dump(history, file)
+
 
     logging.info("finished, processed %s messages", count)
 

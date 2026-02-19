@@ -129,8 +129,14 @@ def update_history(history:defaultdict, parsed_msg: ParsedMessage) -> defaultdic
 
         if "age" not in history[mrn]:
 
+            duplicate = False
+
             history[mrn]["is_male"] = _sex_is_male(parsed_msg.patient.sex)
             history[mrn]["age"] = _parse_float(_compute_age(parsed_msg))
+
+        else:
+
+            duplicate = True
 
     # An ORU^R01 message could contain information about a new creatinine test
     elif (parsed_msg.valid is True and 
@@ -143,10 +149,18 @@ def update_history(history:defaultdict, parsed_msg: ParsedMessage) -> defaultdic
                                            "%Y%m%d%H%M%S")
         test_result = float(parsed_msg.result.value)
 
-        history[mrn].setdefault("creatinine_history", []).append(
-            (test_timestamp, test_result))
+        if (test_timestamp, test_result) not in history[mrn].get("creatinine_history", []):
 
-    return history
+            duplicate = False
+
+            history[mrn].setdefault("creatinine_history", []).append(
+                (test_timestamp, test_result))
+        
+        else:
+
+            duplicate = True
+
+    return history, duplicate
         
 
 def _compute_age(parsed_msg: ParsedMessage) -> int:

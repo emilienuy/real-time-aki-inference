@@ -42,3 +42,7 @@ data/
 # ---- Simulator runtime junk ----
 tools/simulator/__pycache__/
 tools/simulator/*.log
+
+# ---- Kubernetes files ----
+kubectl
+kubectl.sha256

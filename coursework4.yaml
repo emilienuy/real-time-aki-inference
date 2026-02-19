@@ -29,15 +29,18 @@ spec:
       containers:
       - name: aki-detection
         image: imperialswemlsspring2026.azurecr.io/coursework4-gateshead
-        args:
+        command: ["python3", "-m", "src.main"]
         # Replace this with however you tell your solution where to find the
         # initial history file. /data is mounted below.
-        - "--history=/data/history.csv"
         env:
         - name: MLLP_ADDRESS
           value: gateshead-simulator.coursework4:8440
         - name: PAGER_ADDRESS
           value: gateshead-simulator.coursework4:8441
+        - name: HISTORY_CSV
+          value: /data/history.csv
+        - name: PYTHONUNBUFFERED
+          value: "1"
         ports:
         - name: http
           containerPort: 8000

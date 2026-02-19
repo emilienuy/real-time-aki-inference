@@ -11,3 +11,5 @@ def request(pager_port, parsed_msg, host="localhost", timeout=3.0):
     with urlopen(req, timeout=timeout) as resp:
         if resp.status != http.HTTPStatus.OK:
             raise RuntimeError(f"Pager HTTP request failed with status {resp.status}.")
+        else:
+            print(f"Positive AKI pager request: {parsed_msg.mrn},{parsed_msg.result.timestamp}")
