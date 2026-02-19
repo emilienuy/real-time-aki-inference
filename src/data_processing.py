@@ -118,8 +118,10 @@ def read_history(history_path: str) -> defaultdict:
     return history
 
 
-def update_history(history:defaultdict, parsed_msg: ParsedMessage) -> defaultdict:
+def update_history(history:defaultdict, parsed_msg: ParsedMessage) -> tuple[defaultdict, bool]:
     """ Refreshes the history nested dictionary based on the received message. """
+    # Default to duplicate for messages that do not update the history
+    duplicate = True
 
     # An ADT^A01 message could potentially contain new patient data
     if (parsed_msg.valid is True and 
