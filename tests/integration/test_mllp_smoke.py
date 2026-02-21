@@ -44,14 +44,15 @@ def test_mllp_client_can_stream_messages():
             env=env,
         )
 
-        # Let it run briefly then stop it
-        time.sleep(1.0)
+        # Give the service time to import, start, and process some messages.
+        # Imports (sklearn, pandas, prometheus_client) can take a few seconds.
+        time.sleep(3.0)
         client.send_signal(signal.SIGINT)
 
         out, _ = client.communicate(timeout=5)
 
         # Connected and processed at least one message
-        assert "connecting to MLLP" in out
+        assert "Connected to MLLP" in out
         assert "RX[" in out  # means it streamed at least one message
 
     finally:
