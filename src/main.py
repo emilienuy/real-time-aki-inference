@@ -1,17 +1,47 @@
 import csv
 import logging
 import os
+import signal
 import socket
 import time
 import pickle
 from collections import defaultdict
 
+from prometheus_client import start_http_server
+
 from src.ack import build_ack
 from src.hl7 import parse_hl7_message
 from src.http import request as pager_request
+from src.metrics import (
+    AKI_PAGES_SENT,
+    BLOOD_TESTS_RECEIVED,
+    CREATININE_VALUE,
+    MESSAGES_RECEIVED,
+    MLLP_CONNECTIONS,
+)
 from src.mllp import extract_mllp_messages, wrap_mllp_message
 from src.model import AkiModel
 
+
+# ── Graceful shutdown ─────────────────────────────────────────────────────────
+
+_shutdown = False
+_current_sock = None
+
+
+def _handle_sigterm(_signum, _frame):
+    """Mark shutdown and close the socket so recv() unblocks immediately."""
+    global _shutdown, _current_sock
+    logging.info("SIGTERM received; shutting down gracefully")
+    _shutdown = True
+    if _current_sock is not None:
+        try:
+            _current_sock.close()
+        except OSError:
+            pass
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _parse_hostport(addr):
     host, port_str = addr.split(":")
@@ -59,7 +89,6 @@ def _build_training_data(history, aki_labels):
 
 def _fit_model(history_path, aki_path):
     from src.data_processing import read_history
-    from src.model import AkiModel
 
     if not history_path or not os.path.exists(history_path):
         logging.warning("history csv not found at %s; skipping model fit", history_path)
@@ -104,62 +133,77 @@ def _should_page(force_page, model, patient_record):
     return bool(len(pred) > 0 and pred[0] == 1)
 
 
+def _connect_with_retry(host, port, retry_interval=5.0):
+    """Keep trying to open a TCP connection until we succeed or shutdown is set.
+
+    After a successful connect we set a 30-second recv timeout so that
+    _iter_messages wakes up periodically even when the stream is idle,
+    allowing the SIGTERM handler to take effect promptly.
+    """
+    global _current_sock
+    while not _shutdown:
+        try:
+            sock = socket.create_connection((host, port), timeout=10)
+            sock.settimeout(30)
+            _current_sock = sock
+            logging.info("Connected to MLLP at %s:%s", host, port)
+            return sock
+        except OSError as e:
+            logging.warning(
+                "Cannot connect to MLLP at %s:%s: %s; retrying in %.0fs",
+                host, port, e, retry_interval,
+            )
+            time.sleep(retry_interval)
+    return None
+
+
 def _iter_messages(sock):
     buffer = bytearray()
     while True:
         try:
             chunk = sock.recv(4096)
         except (TimeoutError, socket.timeout):
-            continue  # no data yet; keep waiting
+            continue  # idle; loop back so _shutdown can be checked by the caller
         if not chunk:
-            return
-        if not chunk:
-            return
+            return  # server closed the connection cleanly
         buffer.extend(chunk)
         for msg in extract_mllp_messages(buffer):
             yield msg
 
 
+# ── Entry point ───────────────────────────────────────────────────────────────
+
 def main():
+    global _current_sock
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+
+    # Prometheus metrics endpoint (scraped by the cluster's Prometheus instance).
+    metrics_port = int(os.environ.get("METRICS_PORT", "8000"))
+    start_http_server(metrics_port)
+    logging.info("Prometheus metrics on port %d", metrics_port)
 
     mllp_address = os.environ.get("MLLP_ADDRESS", "localhost:8440")
     host, port = _parse_hostport(mllp_address)
 
-    # Default to assessment layout but keep everything configurable for local runs/tests.
     history_path = os.environ.get("HISTORY_CSV", "/data/history.csv")
     aki_path = os.environ.get("AKI_CSV", "")
-    # Load the pre-trained CW1 model by default.
     model_path = os.environ.get("MODEL_PATH", "model.joblib")
     pager_address = os.environ.get("PAGER_ADDRESS", "localhost:8441")
     pager_host, pager_port = _parse_hostport(pager_address)
 
-    # PAGER_ALWAYS is used in integration tests to make paging deterministic.
     force_page = os.environ.get("PAGER_ALWAYS", "0") == "1"
-
-    print(f"connecting to MLLP at {host}:{port} ...")
-    logging.info("connecting to MLLP at %s:%s", host, port)
-    # The simulator may take a moment to bind; retry briefly before failing.
-    deadline = time.time() + 5.0
-    while True:
-        try:
-            sock = socket.create_connection((host, port), timeout=10)
-            break
-        except OSError:
-            if time.time() >= deadline:
-                raise
-            time.sleep(0.1)
 
     from src.data_processing import read_history, update_history
 
-    # History is required to compute features for inference.
-    # If possible, load the saved data prior to a restart
     if os.path.exists("/state/updated_history.pkl"):
         with open("/state/updated_history.pkl", "rb") as file:
             history = pickle.load(file)
     else:
         history = read_history(history_path) if os.path.exists(history_path) else defaultdict(dict)
-    # SKIP_MODEL lets smoke tests avoid expensive model imports/training.
+
     skip_model = os.environ.get("SKIP_MODEL", "0") == "1"
     if skip_model:
         model = None
@@ -169,38 +213,67 @@ def main():
             model = _fit_model(history_path, aki_path)
 
     count = 0
-    for msg in _iter_messages(sock):
-        count += 1
-        # Emit progress for the smoke test and for long-running streams.
-        text = msg.decode("ascii", errors="replace")
-        msh = text.split("\r", 1)[0]
-        if count == 1 or count % 1 == 0:
-            print(f"RX[{count}] {msh}")
 
-        parsed = parse_hl7_message(msg)
+    # Outer loop: reconnect whenever the MLLP connection is lost.
+    while not _shutdown:
+        sock = _connect_with_retry(host, port)
+        if sock is None:
+            break  # _shutdown was set while waiting to connect
 
-        # Always ACK to keep the stream moving
-        sock.sendall(wrap_mllp_message(build_ack()))
+        MLLP_CONNECTIONS.inc()
 
-        if not parsed.valid:
-            continue
+        try:
+            for msg in _iter_messages(sock):
+                if _shutdown:
+                    break
 
-        history, duplicate = update_history(history, parsed)
+                count += 1
+                MESSAGES_RECEIVED.inc()
 
-        if (not duplicate and 
-                parsed.msg_type == "ORU^R01" and 
-                parsed.result.test_type == "CREATININE"):
-            patient_record = history.get(int(parsed.mrn), {})
-            if _should_page(force_page, model, patient_record):
-                pager_request(pager_port, parsed, host=pager_host)
+                text = msg.decode("ascii", errors="replace")
+                msh = text.split("\r", 1)[0]
+                if count == 1 or count % 100 == 0:
+                    print(f"RX[{count}] {msh}")
 
-            # Save the updated history
-            os.makedirs("/state", exist_ok=True)
-            with open("/state/updated_history.pkl", "wb") as file:
-                pickle.dump(history, file)
+                parsed = parse_hl7_message(msg)
 
+                # Always ACK to keep the stream moving.
+                sock.sendall(wrap_mllp_message(build_ack()))
 
-    logging.info("finished, processed %s messages", count)
+                if not parsed.valid:
+                    continue
+
+                history, duplicate = update_history(history, parsed)
+
+                if (not duplicate
+                        and parsed.msg_type == "ORU^R01"
+                        and parsed.result.test_type == "CREATININE"):
+                    BLOOD_TESTS_RECEIVED.inc()
+                    CREATININE_VALUE.observe(parsed.result.value)
+
+                    patient_record = history.get(int(parsed.mrn), {})
+                    if _should_page(force_page, model, patient_record):
+                        AKI_PAGES_SENT.inc()
+                        pager_request(pager_port, parsed, host=pager_host)
+
+                    os.makedirs("/state", exist_ok=True)
+                    with open("/state/updated_history.pkl", "wb") as file:
+                        pickle.dump(history, file)
+
+        except OSError as e:
+            if _shutdown:
+                break
+            logging.warning("MLLP connection lost: %s; reconnecting in 5s", e)
+            time.sleep(5)
+
+        finally:
+            _current_sock = None
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+    logging.info("Shutdown complete, processed %d messages total", count)
 
 
 if __name__ == "__main__":
