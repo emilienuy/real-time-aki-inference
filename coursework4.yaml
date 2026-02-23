@@ -25,24 +25,28 @@ spec:
     metadata:
       labels:
         app: aki-detection
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: aki-detection
-        image: imperialswemlsspring2026.azurecr.io/coursework4-gateshead
+        image: imperialswemlsspring2026.azurecr.io/coursework6-gateshead
         command: ["python3", "-m", "src.main"]
-        # Replace this with however you tell your solution where to find the
-        # initial history file. /data is mounted below.
         env:
         - name: MLLP_ADDRESS
-          value: gateshead-simulator.coursework4:8440
+          value: gateshead-simulator.coursework6:8440
         - name: PAGER_ADDRESS
-          value: gateshead-simulator.coursework4:8441
+          value: gateshead-simulator.coursework6:8441
         - name: HISTORY_CSV
           value: /data/history.csv
         - name: PYTHONUNBUFFERED
           value: "1"
+        - name: METRICS_PORT
+          value: "8000"
         ports:
-        - name: http
+        - name: metrics
           containerPort: 8000
         volumeMounts:
           - mountPath: "/data"
@@ -54,9 +58,17 @@ spec:
           requests:
             memory: 1G
             cpu: "500m"
+        # Restart the pod if it stops responding on the metrics port
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          failureThreshold: 3
       initContainers:
       - name: copy-hospital-history
-        image: imperialswemlsspring2026.azurecr.io/coursework4-history
+        image: imperialswemlsspring2026.azurecr.io/coursework6-history
         volumeMounts:
           - mountPath: "/data"
             name: hospital-history
@@ -71,3 +83,20 @@ spec:
       - name: aki-detection-state
         persistentVolumeClaim:
           claimName: aki-detection-state
+---
+# Prometheus can discover the pod by job name
+apiVersion: v1
+kind: Service
+metadata:
+  name: aki-detection
+  namespace: gateshead
+  labels:
+    app: aki-detection
+    group: gateshead
+spec:
+  selector:
+    app: aki-detection
+  ports:
+  - name: metrics
+    port: 8000
+    targetPort: 8000
