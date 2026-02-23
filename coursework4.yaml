@@ -61,7 +61,7 @@ spec:
             name: aki-detection-state
         resources:
           requests:
-            memory: 1G
+            memory: 512Mi
             cpu: "500m"
         # Restart the pod if it stops responding on the metrics port
         livenessProbe:
@@ -79,8 +79,8 @@ spec:
             name: hospital-history
         resources:
           requests:
-            memory: 1G
-            cpu: "500m"
+            memory: 256Mi
+            cpu: "200m"
       volumes:
       - name: hospital-history
         emptyDir:
@@ -105,3 +105,83 @@ spec:
   - name: metrics
     port: 8000
     targetPort: 8000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: gateshead
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        group: gateshead
+        namespace: gateshead
+
+    alerting:
+      alertmanagers:
+      - scheme: http
+        static_configs:
+        - targets:
+          - "prom-ui.coursework6:9093"
+
+    rule_files:
+      - /etc/prometheus/rules.yml
+
+    scrape_configs:
+    - job_name: aki-detection
+      static_configs:
+      - targets:
+        - "aki-detection.gateshead:8000"
+
+  rules.yml: |
+    groups:
+    - name: aki-detection-absent
+      rules:
+      - alert: GatesheadAkiDetectionAbsent
+        expr: absent(up{job="aki-detection"})
+        for: 10m
+        labels:
+          group: gateshead
+        annotations:
+          summary: "AKI detection service absent in gateshead namespace"
+          description: "The aki-detection job has been absent for more than 10 minutes"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: gateshead
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        group: gateshead
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.45.0
+        args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.retention.time=3d
+        - --storage.tsdb.path=/prometheus
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: "100m"
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
