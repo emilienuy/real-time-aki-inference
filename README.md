@@ -1,6 +1,6 @@
 # Real-Time AKI Inference Service
 
-Production ML service processing HL7v2 medical messages for real-time Acute Kidney Injury detection.
+ML service processing HL7v2 medical messages for real-time Acute Kidney Injury detection.
 
 ## Overview
 
@@ -139,11 +139,6 @@ Tests cover HL7 parsing, MLLP protocol, ML inference, pager alerts, and end-to-e
 Group coursework project for Software Engineering for Machine Learning Systems (Imperial College London, MSc AI).
 
 **Team:** Emilie Nuyttens, Otis Parker, Sergio Garcia
-
-Demonstrates:
-- Medical data interoperability (HL7v2/MLLP standards)
-- Real-time streaming ML inference
-- Production system design (monitoring, testing, fault tolerance)
 
 **Note:** Educational implementation - clinical deployment requires additional validation, regulatory approval, and IT integration.
 
